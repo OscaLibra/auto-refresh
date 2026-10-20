@@ -73,6 +73,7 @@ function makeChrome() {
   const local = new Map();
   const session = new Map();
   const tabs = new Map();
+  const windows = new Map();
   const alarms = new Map();
   const scripts = [];
   const granted = new Set();
@@ -160,6 +161,9 @@ function makeChrome() {
       onReplaced: { addListener: () => {} },
       onActivated: { addListener: () => {} },
     },
+    windows: {
+      get: async (id) => windows.get(id) || { id, state: 'normal' },
+    },
     action: {
       setBadgeText: async (o) => badges.push({ ...o }),
       setBadgeBackgroundColor: async () => {},
@@ -167,7 +171,7 @@ function makeChrome() {
     alarmsState: alarms,
   };
 
-  return { chrome, local, session, tabs, alarms, scripts, granted, messages, badges, reloads, diagLog, listeners };
+  return { chrome, local, session, tabs, windows, alarms, scripts, granted, messages, badges, reloads, diagLog, listeners };
 }
 
 /** 重置每个用例的存储与标签，但保留 chrome 对象（模块已持有引用） */
@@ -175,6 +179,7 @@ function reset(m) {
   m.local.clear();
   m.session.clear();
   m.tabs.clear();
+  m.windows.clear();
   m.scripts.length = 0;
   m.granted.clear();
   m.messages.length = 0;
@@ -389,12 +394,12 @@ async function t7Patrol() {
   const diag = await sessions.getDiag();
   ok('写入 patrol-reload 诊断', diag.some((d) => d.event === 'patrol-reload'));
 
-  // 宽限期内的会话不该被动
+  // 宽限期内的会话不该被动（1.0.3 起 90 秒宽限只保"可见"标签）
   reset(m);
-  m.tabs.set(4, { active: false, status: 'complete' });
+  m.tabs.set(4, { active: true, status: 'complete' });
   await sessions.patchSession(4, { idleMs: 60000, lastActivityAt: Date.now() - 70000, lastExecAt: 0, mode: 'reload' });
   await patrol.patrol();
-  ok('阈值 + 90 秒宽限内不兜底（让 content 先执行）', !m.reloads.includes(4));
+  ok('可见标签阈值 + 90 秒宽限内不兜底（让 content 先执行）', !m.reloads.includes(4));
 
   // ping 模式且禁止降级：兜底不动
   reset(m);
@@ -583,6 +588,50 @@ async function t13ExecSyncsTimeline() {
   ok('reload-blocked 记入 blockedCount', s.blockedCount === 1);
 }
 
+async function t14HiddenEnforcement() {
+  console.log('\n[14] 隐藏标签的到点执法（1.0.3 回归：最小化后到 0 也刷新）');
+  // A. 窗口最小化 + 激活标签 + reload 模式：过隐藏宽限即由 SW 刷新
+  reset(m);
+  m.windows.set(10, { state: 'minimized' });
+  m.tabs.set(7, { active: true, windowId: 10, status: 'complete' });
+  await sessions.patchSession(7, { idleMs: 60000, lastActivityAt: Date.now() - 80000, lastExecAt: 0, mode: 'reload', paused: false });
+  await patrol.patrol();
+  ok('最小化窗口的标签到点即被 SW 刷新', m.reloads.includes(7), JSON.stringify(m.reloads));
+  const s7 = await sessions.getSession(7);
+  ok('隐藏执法后重置计时与结果标记', s7.lastExecResult === 'patrol-reload' && s7.lastExecAt > 0);
+  const diag7 = await sessions.getDiag();
+  ok('诊断流水带 hidden 标记', diag7.some((d) => d.event === 'patrol-reload' && d.detail.includes('hidden')));
+
+  // B. 隐藏宽限（10 秒）未到：不刷，给降频的 content 留一轮 tick 机会
+  reset(m);
+  m.tabs.set(8, { active: false, status: 'complete' }); // 非激活 = 隐藏
+  await sessions.patchSession(8, { idleMs: 60000, lastActivityAt: Date.now() - 65000, lastExecAt: 0, mode: 'reload', paused: false });
+  await patrol.patrol();
+  ok('隐藏宽限 10 秒内不兜底', !m.reloads.includes(8));
+
+  // C. ping 模式即使隐藏也保持 90 秒宽限（保活只能在页面里发）
+  reset(m);
+  m.tabs.set(9, { active: false, status: 'complete' });
+  await sessions.patchSession(9, { idleMs: 60000, lastActivityAt: Date.now() - 80000, lastExecAt: 0, mode: 'ping', allowPingFallback: true, paused: false });
+  await patrol.patrol();
+  ok('ping 模式隐藏时仍等 content（90 秒宽限）', !m.reloads.includes(9));
+
+  // D. 可见标签保持 90 秒宽限（content 1 秒精度优先，防双刷）
+  reset(m);
+  m.windows.set(11, { state: 'normal' });
+  m.tabs.set(12, { active: true, windowId: 11, status: 'complete' });
+  await sessions.patchSession(12, { idleMs: 60000, lastActivityAt: Date.now() - 70000, lastExecAt: 0, mode: 'reload', paused: false });
+  await patrol.patrol();
+  ok('可见标签 90 秒宽限不变', !m.reloads.includes(12));
+
+  // E. 渲染进程冻结（M132+ 的 tab.frozen）视同隐藏，即使标签是激活的
+  reset(m);
+  m.tabs.set(13, { active: true, status: 'complete', frozen: true });
+  await sessions.patchSession(13, { idleMs: 60000, lastActivityAt: Date.now() - 80000, lastExecAt: 0, mode: 'reload', paused: false });
+  await patrol.patrol();
+  ok('冻结标签视同隐藏，到点即刷', m.reloads.includes(13));
+}
+
 try {
   await t1Init();
   await t2RuleCrud();
@@ -597,6 +646,7 @@ try {
   await t11ServiceWorkerLoads();
   await t12TimelineGuard();
   await t13ExecSyncsTimeline();
+  await t14HiddenEnforcement();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);
