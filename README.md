@@ -92,12 +92,14 @@ auto-refresh/
 需要 Node 18+（生成图标需要 Python 3）。
 
 ```bash
-node tools/verify.mjs        # 117 项：manifest 权限红线、content 无 ESM、常量一致性、pattern 单测
-node tools/simulate.mjs      # 33 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨
+node tools/verify.mjs        # 120 项：manifest 权限红线、content 无 ESM、常量一致性、pattern 单测
+node tools/simulate.mjs      # 35 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨
 node tools/simulate-sw.mjs   # 57 项：规则 CRUD、动态注册幂等、会话、暂停、巡检兜底、诊断导出
 python3 tools/make-icons.py  # 重新生成图标
-node tools/pack.mjs          # 产出 auto-refresh-1.0.0.zip
+node tools/pack.mjs          # 产出 dist/auto-refresh-{version}.zip（dist/ 不入库）
 ```
+
+分发包不走版本库：`dist/` 已被 `.gitignore` 排除，`node tools/pack.mjs` 生成的 zip 作为 **GitHub Release 附件**发布。
 
 三套检查全部通过再发布。真实浏览器里的 25 条手工用例见 `docs/验收清单.md`（TC-01 ~ TC-25）。
 

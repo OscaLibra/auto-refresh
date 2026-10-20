@@ -17,6 +17,6 @@ desktop.ini
 .idea/
 *.swp
 
-# 打包产物保留在版本库中（dist/ 里的 zip 是可直接分发的成品），
-# 如不希望每次重建产生二进制 diff，取消下一行注释即可：
-# dist/
+# 打包产物：通过 GitHub Release 附件分发，不进版本库
+# （需要本地产物时执行 node tools/pack.mjs，输出到 dist/）
+dist/
