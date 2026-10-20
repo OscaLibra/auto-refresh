@@ -1,0 +1,12 @@
+{
+  "name": "auto-refresh",
+  "version": "1.0.0",
+  "private": true,
+  "description": "空闲自动刷新（会话保活）—— Chrome/Edge MV3 浏览器扩展",
+  "type": "module",
+  "scripts": {
+    "icons": "python3 tools/make-icons.py",
+    "verify": "node tools/verify.mjs",
+    "pack": "node tools/pack.mjs"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "空闲自动刷新（会话保活）",
+  "version": "1.0.0",
+  "description": "在指定页面上检测无操作时长，到点自动刷新或保活，避免长时间空闲导致登录失效。",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "alarms", "scripting"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "空闲自动刷新",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "src/options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

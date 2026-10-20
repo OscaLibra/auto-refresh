@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>空闲自动刷新 · 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <div class="head-text">
+        <h1>空闲自动刷新</h1>
+        <p class="sub">
+          在指定页面上检测无操作时长，到点自动刷新或保活，避免长时间空闲被登出。
+          建议把阈值设成「实测会话超时 − 2 分钟」。
+        </p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="globalEnabled" />
+        <span class="switch-label">全局启用</span>
+      </label>
+    </header>
+
+    <main>
+      <div id="banner" class="banner" hidden></div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>监控的网址</h2>
+          <button type="button" class="btn" id="btnAdd">+ 添加网址</button>
+        </div>
+        <p class="hint">
+          只有这里列出的页面会被监控。同时命中多条时，路径更长（更具体）的那条生效。
+        </p>
+        <div id="ruleList" class="rule-list"></div>
+        <p id="emptyState" class="empty" hidden>还没有规则。点右上角「+ 添加网址」开始。</p>
+      </section>
+
+      <section class="card" id="formCard" hidden>
+        <div class="card-head">
+          <h2 id="formTitle">添加网址</h2>
+          <button type="button" class="btn ghost" id="btnCancel">取消</button>
+        </div>
+        <form id="ruleForm" novalidate>
+          <label class="field">
+            <span class="label">网址</span>
+            <input
+              type="text"
+              id="fPattern"
+              placeholder="例如 oa.example.com/app 或 https://oa.example.com/*"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <p class="preview" id="fPreview" hidden></p>
+
+          <div class="grid">
+            <label class="field">
+              <span class="label">名称（可选）</span>
+              <input type="text" id="fLabel" maxlength="32" placeholder="OA 后台" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="label">空闲多少分钟后刷新</span>
+              <input type="number" id="fIdle" min="1" max="180" step="1" value="10" />
+            </label>
+            <label class="field">
+              <span class="label">到点做什么</span>
+              <select id="fMode">
+                <option value="reload">刷新页面（最可靠）</option>
+                <option value="ping">仅保活，页面不动</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="label">刷新前提示（秒，0 = 直接刷新）</span>
+              <input type="number" id="fPrompt" min="0" max="120" step="1" value="0" />
+            </label>
+          </div>
+
+          <div class="checks">
+            <label><input type="checkbox" id="fKeepScroll" checked /> 刷新后恢复原来的滚动位置</label>
+            <label><input type="checkbox" id="fPingFallback" checked /> 仅保活失败时自动改为刷新</label>
+          </div>
+
+          <p class="error" id="fError" hidden></p>
+          <div class="actions">
+            <button type="submit" class="btn primary" id="btnSave">保存</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>默认值</h2></div>
+        <p class="hint">新建网址时使用这些默认值，单条网址可以单独设置。</p>
+        <div class="grid">
+          <label class="field">
+            <span class="label">默认空闲阈值（分钟）</span>
+            <input type="number" id="sIdle" min="1" max="180" step="1" />
+          </label>
+          <label class="field">
+            <span class="label">默认动作</span>
+            <select id="sMode">
+              <option value="reload">刷新页面</option>
+              <option value="ping">仅保活</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">默认提示时长（秒）</span>
+            <input type="number" id="sPrompt" min="0" max="120" step="1" />
+          </label>
+        </div>
+        <div class="checks">
+          <label>
+            <input type="checkbox" id="sCountScroll" />
+            把页面滚动也算作「有操作」（日志流 / 自动滚动的页面别开，会导致永不刷新）
+          </label>
+          <label><input type="checkbox" id="sNotifyBlocked" /> 刷新被页面拦截时提示我</label>
+          <label><input type="checkbox" id="sDebug" /> 输出调试日志（排查问题时再开）</label>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn" id="btnSaveSettings">保存默认值</button>
+          <span class="ok" id="settingsOk" hidden>已保存</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>诊断</h2></div>
+        <p class="hint">
+          所有数据只存在本机，不上传任何服务器；导出内容不含网址参数、不含页面内容。
+          遇到问题时把导出内容发给技术支持即可。
+        </p>
+        <div class="actions">
+          <button type="button" class="btn" id="btnExport">导出诊断到剪贴板</button>
+          <span class="ok" id="exportOk" hidden>已复制到剪贴板</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>这个插件不做什么</h2></div>
+        <ul class="limits">
+          <li>不读取 Cookie、不读表单内容、不读剪贴板，不接触账号凭据。</li>
+          <li>不向任何第三方域名发请求，没有任何埋点或数据回传。</li>
+          <li>不模拟点击、不自动填账号密码、不绕过任何登录或访问控制。</li>
+          <li>只在你已经登录的页面上「刷新 / 保活」；会话真过期了会正常跳登录页，这是预期结果。</li>
+          <li>不得用于考勤或在岗监控，也不得用于绕过付费墙、风控。</li>
+        </ul>
+      </section>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
