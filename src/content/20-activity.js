@@ -15,16 +15,19 @@
   if (!AR) return;
 
   /**
-   * 计入活动的事件（AR-TD-001 4.3）。
-   * `scroll` 与 `input` 是可选：默认关闭——日志流 / 轮播 / 无限加载会让 scroll 持续触发
-   * 且 isTrusted 仍为 true，无法与真实滚动区分，打开就会"永不刷新"。
-   *
+   * 计入活动的事件（AR-TD-001 4.3，有两处偏离，见下）。
+   * 这里**没有** `mousemove`（1.0.2 移出默认集，可用 countMouseMoveAsActivity 打开）：
+   *  1) 悬浮 / 轻微挪动鼠标不代表真实操作，把倒计时打回去会让"保活"退化为"永不刷新"；
+   *  2) 更隐蔽的是：页面内容在静止光标下移动（日志流、轮播、悬浮面板展开）时，
+   *     Chrome 会补发合成 mousemove 且 isTrusted 仍为 true——与 scroll 是同一类伪活动，
+   *     无法与真实移动区分。
    * 这里**没有** `focusin`（规范原表里列了，1.0.1 移除）。两个理由：
    *  1) 冗余：点进输入框有 pointerdown / mousedown，Tab 进来有 keydown，纯聚焦无法脱离这两者发生；
    *  2) 有害：部分浏览器在窗口重新获得焦点时会补发焦点事件，
    *     那会把"最小化再打开"又变回一次伪活动——正是 1.0.1 要修的那类误判。
+   * `scroll` / `input` 同样默认关闭——日志流 / 轮播 / 无限加载会让它们持续触发。
    */
-  const BASE_EVENTS = ['mousemove', 'mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'];
+  const BASE_EVENTS = ['mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'];
 
   /** @type {Array<[string, EventListener, AddEventListenerOptions]>} */
   let active = [];
@@ -34,11 +37,11 @@
   /**
    * 开始监听。
    * @param {() => void} onSignal 每次活动回调（必须极轻）
-   * @param {{countScroll?: boolean, countInput?: boolean}} [opts]
+   * @param {{countScroll?: boolean, countMouseMove?: boolean, countInput?: boolean}} [opts]
    */
   function start(onSignal, opts) {
     const o = opts || {};
-    const key = `${o.countScroll ? 1 : 0}${o.countInput ? 1 : 0}`;
+    const key = `${o.countScroll ? 1 : 0}${o.countMouseMove ? 1 : 0}${o.countInput ? 1 : 0}`;
     // 同一份配置重复调用视为幂等，避免双实例导致一份页面被重复计时
     if (bound && key === boundKey) return;
     if (bound) stop();
@@ -51,6 +54,9 @@
     };
 
     for (const type of BASE_EVENTS) add(type);
+    if (o.countMouseMove) {
+      add('mousemove');
+    }
     if (o.countScroll) {
       // scroll 不冒泡，必须 capture 才收得到内部容器的滚动（规范 5.2）
       add('scroll');

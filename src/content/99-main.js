@@ -36,6 +36,7 @@
     minExecIntervalMs: 30000,
     activityReportThrottleMs: 10000,
     countScrollAsActivity: false,
+    countMouseMoveAsActivity: false,
     notifyOnBlocked: true,
     debug: false,
   });
@@ -89,7 +90,7 @@
     st.ready = true;
     st.lastActivityAt = Date.now();
 
-    AR.activity.start(onUserSignal, { countScroll: !!st.settings.countScrollAsActivity });
+    AR.activity.start(onUserSignal, activityOpts());
     // fresh=true：这是页面的真实起点，SW 应当从现在开始计时
     AR.telemetry.hello(true);
     AR.judge.start();
@@ -97,6 +98,7 @@
     if (!pagehideBound) {
       pagehideBound = true;
       window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('pageshow', onPageShow);
     }
 
     AR.log('info', 'booted', {
@@ -153,11 +155,22 @@
     AR.telemetry.activity();
   }
 
+  /** @returns {{countScroll: boolean, countMouseMove: boolean}} 活动监听配置（三处调用共享） */
+  function activityOpts() {
+    return {
+      countScroll: !!st.settings.countScrollAsActivity,
+      countMouseMove: !!st.settings.countMouseMoveAsActivity,
+    };
+  }
+
   /**
    * 页面重新可见时立刻结算一次，但**绝不**重置计时。
    *
    * 为什么立刻 tick：页面最小化 / 被冻结期间定时器会被降频甚至暂停，
    *   恢复瞬间可能已经超过阈值很久了，等下一个 tick 是没必要的延迟。
+   * 为什么同时 sync 一次时间戳：SW 会话里的 lastActivityAt 只靠节流上报维护，
+   *   弹窗 / 角标读的是 SW 副本；恢复瞬间同步一次，保证用户看到的剩余时间
+   *   与页面里真正参与判决的基准一致，不会出现"先显示旧值再跳变"。
    *
    * 为什么不把"恢复可见"算作用户活动（偏离 AR-TD-001 4.3，见 CHANGELOG 1.0.1）：
    *   原实现把它当成活动，导致"最小化 9 分钟 → 重新打开 → 倒计时回到满值"。
@@ -169,6 +182,7 @@
   function onVisibilityChange() {
     if (document.visibilityState !== 'visible') return;
     AR.judge.tick();
+    AR.telemetry.sync();
   }
 
   /** 页面卸载：清定时器与浮层，避免 bfcache 恢复后出现双实例 */
@@ -177,6 +191,25 @@
     AR.activity.stop();
     AR.overlay.destroy();
     AR.telemetry.bye('pagehide');
+  }
+
+  /**
+   * bfcache 恢复（前进 / 后退回到本页）：JS 堆原样恢复，但 pagehide 时已停表，
+   * 必须就地重启——否则倒计时永远停在离开前的值（表现为"倒计时暂停"）。
+   * 绝不能在这里重置计时基准：用户离开前页面已空闲多久，回来后照样算数。
+   * @param {PageTransitionEvent} e
+   */
+  function onPageShow(e) {
+    if (!e || !e.persisted) return; // 普通加载走 boot()，不归这里管
+    AR.log('debug', 'bfcache-restore');
+    if (st.ready) {
+      AR.judge.start(); // start() 幂等：先 stop 再起，不会产生双定时器
+      AR.activity.start(onUserSignal, activityOpts());
+      AR.telemetry.hello(false); // 元数据同步；时间轴保持离开前的基准
+    } else {
+      resync();
+    }
+    AR.judge.tick();
   }
 
   /** 监听只挂一次：resync / boot 可能被多次调用 */
@@ -283,7 +316,7 @@
       return;
     }
 
-    AR.activity.start(onUserSignal, { countScroll: !!st.settings.countScrollAsActivity });
+    AR.activity.start(onUserSignal, activityOpts());
     if (!wasActive) AR.judge.resetActivity();
     if (!st.ready) {
       st.ready = true;
@@ -338,6 +371,7 @@
       minExecIntervalMs: clamp(Number(s.minExecIntervalMs) || 30000, 1000, 600000),
       activityReportThrottleMs: clamp(Number(s.activityReportThrottleMs) || 10000, 1000, 300000),
       countScrollAsActivity: s.countScrollAsActivity === true,
+      countMouseMoveAsActivity: s.countMouseMoveAsActivity === true,
       notifyOnBlocked: s.notifyOnBlocked !== false,
       debug: s.debug === true,
     };

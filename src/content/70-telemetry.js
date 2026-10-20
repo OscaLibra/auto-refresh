@@ -93,6 +93,16 @@
   }
 
   /**
+   * 即时同步（绕过节流）：把当前权威时间戳立刻告诉 SW。
+   * 只在"副本可能与判决方脱节"的关键节点调用——目前是页面恢复可见时，
+   * 让弹窗 / 角标立即显示真实剩余时间，而不是等下一个节流窗口。
+   */
+  function sync() {
+    if (!st.isTop) return Promise.resolve(null);
+    return flush();
+  }
+
+  /**
    * 关键事件上报（刷新开始 / 被拦截 / 保活结果…）。
    * @param {string} event 见 00-config.js 的 AR.const.EV
    * @param {string} [detail]
@@ -109,5 +119,5 @@
     return send({ type: C.MSG.BYE, payload: { reason: reason || 'pagehide' } });
   }
 
-  AR.telemetry = { send, hello, activity, event, bye };
+  AR.telemetry = { send, hello, activity, sync, event, bye };
 })();

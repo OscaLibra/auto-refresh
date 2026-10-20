@@ -61,6 +61,7 @@ function renderGlobal() {
   $('sMode').value = s.defaultMode === 'ping' ? 'ping' : 'reload';
   $('sPrompt').value = String(s.defaultPromptSeconds);
   $('sCountScroll').checked = !!s.countScrollAsActivity;
+  $('sCountMouseMove').checked = !!s.countMouseMoveAsActivity;
   $('sNotifyBlocked').checked = s.notifyOnBlocked !== false;
   $('sDebug').checked = !!s.debug;
 
@@ -401,6 +402,7 @@ async function onSaveSettings() {
     defaultMode: $('sMode').value === 'ping' ? 'ping' : 'reload',
     defaultPromptSeconds: promptSeconds,
     countScrollAsActivity: $('sCountScroll').checked,
+    countMouseMoveAsActivity: $('sCountMouseMove').checked,
     notifyOnBlocked: $('sNotifyBlocked').checked,
     debug: $('sDebug').checked,
   });

@@ -234,8 +234,8 @@ function buildEnv(opt) {
       if (i >= 0) arr.splice(i, 1);
     },
     /** 测试用：派发一个事件，模拟真实用户操作 */
-    dispatch: (t) => {
-      for (const fn of (winListeners[t] || []).slice()) fn({ type: t });
+    dispatch: (t, extra) => {
+      for (const fn of (winListeners[t] || []).slice()) fn(Object.assign({ type: t }, extra || {}));
     },
     scrollY: 0,
     scrollTo: () => {},
@@ -408,21 +408,32 @@ async function caseReload() {
 }
 
 async function caseActivityResets() {
-  console.log('\n[2] 有操作时不刷新');
+  console.log('\n[2] 有操作时不刷新；悬浮不算操作');
   const env = buildEnv({ rules: [RULE_RELOAD], settings: SETTINGS });
   loadContent(env);
   await sleep(30);
   const AR = getAR(env.ctx);
   const st = AR.state;
 
+  // 悬浮 / 轻微挪动鼠标（mousemove）默认不算操作：页面内容在静止光标下
+  // 移动时 Chrome 也会补发合成 mousemove，算进去就会永不刷新（1.0.2 起）
   st.lastActivityAt = Date.now() - 30000;
-  // 走真实链路：派发 mousemove → 20-activity → onUserSignal → 判决重置 + 节流上报
+  const before = st.lastActivityAt;
   env.window.dispatch('mousemove');
   await sleep(10);
   AR.judge.tick();
   await sleep(10);
-  ok('活动后 30 秒不刷新', env.reloads === 0, `reloads=${env.reloads}`);
-  ok('活动被节流上报到了 SW', env.sent.some((m) => m.type === 'ar:content:activity'));
+  ok('mousemove 不重置计时', st.lastActivityAt === before, `after=${st.lastActivityAt}`);
+  ok('mousemove 不产生活动上报', !env.sent.some((m) => m.type === 'ar:content:activity'));
+
+  // 真实操作（点击）走 pointerdown：重置计时 + 节流上报
+  env.window.dispatch('pointerdown');
+  await sleep(10);
+  AR.judge.tick();
+  await sleep(10);
+  ok('点击后不刷新', env.reloads === 0, `reloads=${env.reloads}`);
+  ok('点击被节流上报到了 SW', env.sent.some((m) => m.type === 'ar:content:activity'));
+  ok('点击重置了计时基准', st.lastActivityAt > before);
 
   AR.judge.stop();
 }
@@ -668,6 +679,39 @@ async function caseResyncKeepsTimeline() {
   AR.judge.stop();
 }
 
+async function caseBfcacheRestore() {
+  console.log('\n[13] bfcache 恢复：重启计时，不重置基准');
+  const env = buildEnv({ rules: [RULE_RELOAD], settings: SETTINGS });
+  loadContent(env);
+  await sleep(30);
+  const AR = getAR(env.ctx);
+  const st = AR.state;
+
+  st.lastActivityAt = Date.now() - 20 * 1000;
+  const before = st.lastActivityAt;
+
+  // 前进/后退进入 bfcache：pagehide 停表
+  env.window.dispatch('pagehide');
+  await sleep(10);
+  ok('pagehide 后停表', st.tickTimer === 0, String(st.tickTimer));
+
+  // 从 bfcache 恢复：必须就地重启，否则倒计时永远停在离开前的值
+  env.window.dispatch('pageshow', { persisted: true });
+  await sleep(20);
+  ok('bfcache 恢复后重启计时', st.tickTimer !== 0, String(st.tickTimer));
+  ok('bfcache 恢复不重置计时基准', st.lastActivityAt === before, `after=${st.lastActivityAt}`);
+  const hello = [...env.sent].reverse().find((m) => m.type === 'ar:content:hello');
+  ok('bfcache 恢复向 SW 重新登记（非 fresh）', !!hello && hello.payload.fresh === false);
+
+  // 普通导航的 pageshow（persisted=false）不做任何事
+  const sentCount = env.sent.length;
+  env.window.dispatch('pageshow', { persisted: false });
+  await sleep(10);
+  ok('普通 pageshow 不产生额外消息', env.sent.length === sentCount);
+
+  AR.judge.stop();
+}
+
 /* ------------------------------------------------------------------ */
 
 try {
@@ -683,6 +727,7 @@ try {
   await caseVisibilityRestore();
   await caseHiddenThrottled();
   await caseResyncKeepsTimeline();
+  await caseBfcacheRestore();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);

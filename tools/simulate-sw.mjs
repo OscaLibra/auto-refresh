@@ -560,6 +560,29 @@ async function t12TimelineGuard() {
   ok('普通 pagehide 不清会话', (await sessions.getSession(3)) !== null);
 }
 
+async function t13ExecSyncsTimeline() {
+  console.log('\n[13] 执行事件同步会话时间轴（1.0.2 回归）');
+  reset(m);
+  await rulesStore.ensureInitialized();
+  m.tabs.set(1, { active: true, status: 'complete' });
+  await call('ar:content:hello', { url: 'https://oa.example.com/app', ruleId: 'r_1', idleMs: 60000, mode: 'ping', fresh: true });
+
+  // 把会话时间戳拨到"已过期"，模拟副本与判决方脱节
+  const stale = Date.now() - 120000;
+  await sessions.patchSession(1, { lastActivityAt: stale });
+
+  await call('ar:content:exec', { event: 'ping-ok' });
+  let s = await sessions.getSession(1);
+  ok('ping-ok 后会话时间戳与 content 同步', Date.now() - s.lastActivityAt < 1000, String(s.lastActivityAt));
+  ok('ping-ok 记入 lastExecAt 与计数', s.lastExecAt > 0 && s.pingOkCount === 1);
+
+  await sessions.patchSession(1, { lastActivityAt: stale });
+  await call('ar:content:exec', { event: 'reload-blocked' });
+  s = await sessions.getSession(1);
+  ok('reload-blocked 后会话时间戳与 content 同步', Date.now() - s.lastActivityAt < 1000, String(s.lastActivityAt));
+  ok('reload-blocked 记入 blockedCount', s.blockedCount === 1);
+}
+
 try {
   await t1Init();
   await t2RuleCrud();
@@ -573,6 +596,7 @@ try {
   await t10Export();
   await t11ServiceWorkerLoads();
   await t12TimelineGuard();
+  await t13ExecSyncsTimeline();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);

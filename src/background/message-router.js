@@ -151,10 +151,16 @@ export const routes = {
       patch.lastExecAt = Date.now();
       patch.reloadCount = (s?.reloadCount || 0) + 1;
     } else if (p.event === DIAG_EVENT.RELOAD_BLOCKED) {
+      // content 已重置自己的计时基准（beforeunload 拦截），会话副本必须跟上，
+      // 否则弹窗 / 角标看到的还是"已过期"的旧基准，倒计时会卡在 00:00
+      patch.lastExecAt = Date.now();
       patch.blockedCount = (s?.blockedCount || 0) + 1;
+      patch.lastActivityAt = Date.now();
     } else if (p.event === DIAG_EVENT.PING_OK) {
+      // 保活成功 = 服务端会话已续期，content 已重置计时；会话同步，弹窗才不会卡在 00:00
       patch.lastExecAt = Date.now();
       patch.pingOkCount = (s?.pingOkCount || 0) + 1;
+      patch.lastActivityAt = Date.now();
     } else if (p.event === DIAG_EVENT.PING_FALLBACK) {
       patch.pingFailCount = (s?.pingFailCount || 0) + 1;
     }

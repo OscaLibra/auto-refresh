@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   minExecIntervalMs: 30000,
   activityReportThrottleMs: 10000,
   countScrollAsActivity: false,
+  countMouseMoveAsActivity: false,
   notifyOnBlocked: true,
   debug: false,
 });
@@ -115,6 +116,7 @@ export function sanitizeSettings(s) {
     minExecIntervalMs: clampInt(s.minExecIntervalMs, 1000, 600000, 30000),
     activityReportThrottleMs: clampInt(s.activityReportThrottleMs, 1000, 300000, 10000),
     countScrollAsActivity: s.countScrollAsActivity === true,
+    countMouseMoveAsActivity: s.countMouseMoveAsActivity === true,
     notifyOnBlocked: s.notifyOnBlocked !== false,
     debug: s.debug === true,
   };
