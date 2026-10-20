@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "空闲自动刷新（会话保活）",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "在指定页面上检测无操作时长，到点自动刷新或保活，避免长时间空闲导致登录失效。",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "alarms", "scripting"],

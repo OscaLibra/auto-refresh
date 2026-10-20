@@ -1,6 +1,6 @@
 {
   "name": "auto-refresh",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "空闲自动刷新（会话保活）—— Chrome/Edge MV3 浏览器扩展",
   "type": "module",

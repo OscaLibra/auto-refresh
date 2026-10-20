@@ -81,9 +81,14 @@
     if (idle >= st.idleMs) {
       hidePrompt();
 
-      // 唤醒宽限：用户刚睁眼页面就闪一下体验极差，先等 wakeGraceMs
+      // 唤醒宽限：用户刚睁眼页面就闪一下，体验极差，所以延迟 wakeGraceMs 再执行。
+      // 两个前提条件缺一不可：
+      //  1) 只在前台生效——隐藏页面没人看着，"等两秒"没有意义；
+      //  2) 必须限定在前台，否则后台降频时（每次 tick 间隔 60 秒 > WAKE_DETECT_MS）
+      //     宽限会被每分钟重新续期一次，页面永远不会自己执行，只剩 SW 巡检兜底。
       const grace = Number((st.settings && st.settings.wakeGraceMs) ?? 2000);
-      if (st.wakeAt && now - st.wakeAt < grace) return;
+      const visible = document.visibilityState === 'visible';
+      if (visible && st.wakeAt && now - st.wakeAt < grace) return;
 
       // 防抖底线：任何执行器 30 秒内不重复触发，避免"刷完立刻又被判超时"
       if (now - st.lastExecAt < C.MIN_EXEC_INTERVAL_MS) {

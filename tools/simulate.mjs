@@ -299,6 +299,12 @@ function buildEnv(opt) {
       if (!msgListener) return;
       return msgListener(msg, {}, () => {});
     },
+    /** 测试用：模拟最小化 / 切标签 / 恢复（触发 visibilitychange） */
+    setVisibility: (state) => {
+      document.visibilityState = state;
+      const fn = docListeners.visibilitychange;
+      if (fn) fn({ type: 'visibilitychange' });
+    },
   };
 }
 
@@ -534,6 +540,52 @@ async function caseWakeGrace() {
   AR.judge.stop();
 }
 
+async function caseVisibilityRestore() {
+  console.log('\n[10] 最小化 / 恢复可见：不重置计时');
+  const env = buildEnv({ rules: [RULE_RELOAD], settings: SETTINGS });
+  loadContent(env);
+  await sleep(30);
+  const AR = getAR(env.ctx);
+  const st = AR.state;
+
+  // 阈值 1 分钟，已空闲 30 秒；此时最小化再打开
+  st.lastActivityAt = Date.now() - 30 * 1000;
+  const before = st.lastActivityAt;
+
+  env.setVisibility('hidden');
+  await sleep(10);
+  env.setVisibility('visible');
+  await sleep(10);
+
+  ok('恢复可见不改写 lastActivityAt', st.lastActivityAt === before, `before=${before} after=${st.lastActivityAt}`);
+  ok('空闲未到点时不刷新', env.reloads === 0);
+  const remain = st.idleMs - (Date.now() - st.lastActivityAt);
+  ok('剩余时间没有回到满值', remain < st.idleMs, `remain=${Math.round(remain / 1000)}s idleMs=${st.idleMs / 1000}s`);
+
+  AR.judge.stop();
+}
+
+async function caseHiddenThrottled() {
+  console.log('\n[11] 隐藏页面被降频时仍能自行执行');
+  // 这是"最小化后永远不刷新、只能等巡检"的根因回归测试
+  const env = buildEnv({ rules: [RULE_RELOAD], settings: { ...SETTINGS, wakeGraceMs: 5000 } });
+  env.document.visibilityState = 'hidden';
+  loadContent(env);
+  await sleep(30);
+  const AR = getAR(env.ctx);
+  const st = AR.state;
+
+  st.lastActivityAt = Date.now() - 11 * 60000; // 已超阈值
+  st.lastTickAt = Date.now() - 60 * 1000; // 上一次 tick 在 60 秒前（降频到 1 次/分钟）
+  st.lastExecAt = 0;
+
+  AR.judge.tick();
+  await sleep(20);
+  ok('降频场景不会被唤醒宽限无限续期', env.reloads === 1, `reloads=${env.reloads}`);
+
+  AR.judge.stop();
+}
+
 async function caseClockRollback() {
   console.log('\n[9] 系统时间回拨');
   const env = buildEnv({ rules: [RULE_RELOAD], settings: SETTINGS });
@@ -564,6 +616,8 @@ try {
   await caseGlobalOff();
   await caseWakeGrace();
   await caseClockRollback();
+  await caseVisibilityRestore();
+  await caseHiddenThrottled();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);

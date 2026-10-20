@@ -38,6 +38,7 @@
 - **后台标签的定时器会被降频到每分钟 1 次**（Chromium intensive throttling），所以只能承诺「约 N 分钟 + 最多 1 分钟误差」。因此计时全程用**时间戳差值**，绝不用计数器累加。
 - **页面的 `beforeunload` 会拦住刷新**。刷新后埋 3 秒存活探针，探针到期代码还在跑就说明被拦了 → 重置计时 + 提示改用保活模式，否则会每 30 秒弹一次确认框。
 - **`scroll` 默认不算「有操作」**。日志流、轮播、无限加载会让 scroll 持续触发且 `isTrusted` 仍为 `true`，无法与真实滚动区分，打开就会永不刷新。该项作为设置项暴露，默认关闭。
+- **窗口可见性变化不算「有操作」**。最小化、切到别的窗口再回来，都不重置计时——只有真实的鼠标 / 键盘事件才算。否则「最小化 9 分钟再打开（阈值 10 分钟）」会让页面实际空闲 19 分钟才刷新，会话早就过期了。这条与 AR-TD-001 4.3「转为可见即视为活动」的原设计不同，1.0.1 起修正，理由写在 `30-idle-judge.js` 与 `99-main.js` 的注释里。
 
 ---
 
@@ -77,7 +78,7 @@ auto-refresh/
 └── tools/
     ├── make-icons.py             # 生成三档 PNG（不依赖 Pillow）
     ├── verify.mjs                # 静态自检 + pattern 单元测试
-    ├── simulate.mjs              # content 端运行时冒烟测试（33 项）
+    ├── simulate.mjs              # content 端运行时冒烟测试（39 项）
     ├── simulate-sw.mjs           # service worker 集成测试（57 项）
     └── pack.mjs                  # 打包成可分发的 zip
 ```
@@ -93,7 +94,7 @@ auto-refresh/
 
 ```bash
 node tools/verify.mjs        # 120 项：manifest 权限红线、content 无 ESM、常量一致性、pattern 单测
-node tools/simulate.mjs      # 35 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨
+node tools/simulate.mjs      # 39 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨、最小化恢复
 node tools/simulate-sw.mjs   # 57 项：规则 CRUD、动态注册幂等、会话、暂停、巡检兜底、诊断导出
 python3 tools/make-icons.py  # 重新生成图标
 node tools/pack.mjs          # 产出 dist/auto-refresh-{version}.zip（dist/ 不入库）
