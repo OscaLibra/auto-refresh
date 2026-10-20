@@ -21,6 +21,7 @@ import {
   listSessions,
   getDiag,
   pushDiag,
+  clearSession,
   DIAG_LIMIT,
 } from './session-store.js';
 import { rebuild } from './registrar.js';
@@ -87,14 +88,28 @@ export const routes = {
     const prev = await getSession(tabId);
     const now = Date.now();
     const sameRule = prev && prev.ruleId === p.ruleId;
+
+    // 计时基准只允许两类来源，绝不能在这里写 `now` 了事：
+    //  1) fresh（页面真正加载/刷新）→ 新时间轴，从现在起算；
+    //  2) 非 fresh（resync 的元数据同步）→ content 是判决方，以它报来的
+    //     lastActivityAt 为准。曾有无条件 `lastActivityAt: now` 的写法，
+    //     导致 resync 风暴时倒计时被反复归满（CHANGELOG 1.0.2）。
+    let lastActivityAt = now;
+    if (!p.fresh) {
+      const fromContent = Number(p.lastActivityAt);
+      lastActivityAt =
+        Number.isFinite(fromContent) && fromContent > 0
+          ? Math.min(fromContent, now)
+          : (prev?.lastActivityAt ?? now);
+    }
+
     const session = await patchSession(tabId, {
       ruleId: p.ruleId || null,
       url: safeUrl(p.url || ''),
       idleMs,
       mode: p.mode === 'ping' ? 'ping' : 'reload',
       allowPingFallback: p.allowPingFallback !== false,
-      // 页面重新加载后必须重置计时（AR-PRC-003 常见报错最后一条）
-      lastActivityAt: now,
+      lastActivityAt,
       // 暂停是"按标签"的意愿，规则不变时跨刷新保留；换规则则视为新会话
       paused: sameRule ? !!prev.paused : false,
       lastExecResult: sameRule ? prev.lastExecResult : undefined,
@@ -150,10 +165,18 @@ export const routes = {
     return { ok: true };
   },
 
-  /** 页面卸载前的告别（仅诊断用，不清会话：可能是刷新，新页面还会 hello） */
+  /**
+   * 页面卸载前的告别。默认不清会话（可能是刷新，新页面还会 hello）；
+   * 但 `rule-lost` 表示该页已确定不在监控范围（规则被删 / 改 / 停用），
+   * 会话留着只会让兜底巡检去刷一个不该刷的页面，必须清。
+   */
   [MSG.CONTENT_BYE]: async (msg, sender) => {
     const tabId = requireTabId(sender);
-    await pushDiag({ event: 'bye', tabId, detail: msg?.payload?.reason });
+    const reason = String(msg?.payload?.reason || 'pagehide');
+    if (reason === 'rule-lost') {
+      await clearSession(tabId);
+    }
+    await pushDiag({ event: 'bye', tabId, detail: reason });
     return { ok: true };
   },
 

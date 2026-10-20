@@ -14,6 +14,7 @@ export const MSG = Object.freeze({
   CONTENT_ACTIVITY: 'ar:content:activity',
   CONTENT_EXEC: 'ar:content:exec',
   CONTENT_BYE: 'ar:content:bye',
+  CONTENT_DIAG: 'ar:content:diag',
 
   /* popup / options → SW */
   SW_GET_STATE: 'ar:sw:getState',
@@ -72,6 +73,12 @@ export const DIAG_EVENT = Object.freeze({
   URL_CHANGED: 'url-changed',
   EXEC_ERROR: 'exec-error',
   DEBOUNCED: 'debounced',
+  /**
+   * 计时基准被重置。detail 里带来源（boot / resync-start / resume / snooze / 具体事件名）。
+   * 这是排查"倒计时为什么突然归满"的关键线索：只有真实输入、
+   * 页面载入、刚转为监控、用户暂停恢复这四类才应该出现。
+   */
+  RESET: 'reset',
 });
 
 /**

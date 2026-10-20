@@ -33,8 +33,12 @@
     }
   }
 
-  /** 启动登记：告诉 SW "这个标签在按这条规则计时" */
-  function hello() {
+  /**
+   * 启动登记：告诉 SW "这个标签在按这条规则计时"。
+   * @param {boolean} [fresh] true = 页面刚真正加载（SW 据此重开时间轴）；
+   *   false/省略 = 仅元数据同步（resync 触发），SW 必须保留现有计时基准。
+   */
+  function hello(fresh) {
     if (!st.isTop) return Promise.resolve(null);
     return send({
       type: C.MSG.HELLO,
@@ -44,6 +48,8 @@
         idleMs: st.idleMs,
         mode: st.mode,
         allowPingFallback: st.allowPingFallback,
+        lastActivityAt: st.lastActivityAt || Date.now(),
+        fresh: fresh === true,
       },
     });
   }

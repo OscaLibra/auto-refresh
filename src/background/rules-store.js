@@ -262,7 +262,15 @@ export async function ensureInitialized() {
     console.error('[AR] migrate failed, fallback to defaults', e);
   }
 
-  await chrome.storage.local.set({ [K_SETTINGS]: sanitizeSettings(settings) }).catch(() => {});
+  // 关键：只有真变化才落盘。SW 每 30 秒被巡检 alarm 唤醒一次、每次都会重跑到这里，
+  // 无条件 set 会让所有页面收到 storage.onChanged → 触发 resync → 重置倒计时。
+  // 这正是"最小化再打开，倒计时突然归满"的根源（CHANGELOG 1.0.2）。
+  const next = sanitizeSettings(settings);
+  const raw = got?.[K_SETTINGS];
+  const rawNorm = raw && typeof raw === 'object' ? sanitizeSettings({ ...DEFAULT_SETTINGS, ...raw }) : null;
+  if (!rawNorm || JSON.stringify(rawNorm) !== JSON.stringify(next)) {
+    await chrome.storage.local.set({ [K_SETTINGS]: next }).catch(() => {});
+  }
 
   const rules = got?.[K_RULES];
   if (!Array.isArray(rules)) {

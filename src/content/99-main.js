@@ -90,7 +90,8 @@
     st.lastActivityAt = Date.now();
 
     AR.activity.start(onUserSignal, { countScroll: !!st.settings.countScrollAsActivity });
-    AR.telemetry.hello();
+    // fresh=true：这是页面的真实起点，SW 应当从现在开始计时
+    AR.telemetry.hello(true);
     AR.judge.start();
 
     if (!pagehideBound) {
@@ -250,29 +251,46 @@
    * 重新匹配规则（SPA 路由变化 / 规则被改 / 设置被改都走这里）。
    * 这是 R-12 的降级方案：不做 MAIN world 劫持 pushState，
    * 而是由 SW 在 tabs.onUpdated 里发现 URL 变化后下发 resync。
+   *
+   * 计时基准只在"从无到有"（开始监控）时重置：
+   *  - 配置原样的 resync（SW 唤醒 / 无关设置写入触发的广播）绝不能动时间轴——
+   *    否则最小化期间每次 SW 唤醒都会把倒计时归满（CHANGELOG 1.0.2 的核心修复）；
+   *  - 阈值 / 模式变化也不重置：原基准对旧阈值成立，对新阈值同样成立，
+   *    而且用户改配置时大概率刚操作过页面，重置反而白等一轮；
+   *  - 只有从"未监控"进入"监控中"，才是真正的时间轴起点。
    */
   async function resync() {
+    const prev = {
+      ruleId: st.rule ? st.rule.id : null,
+      enabled: st.enabled && st.ready,
+    };
     const ok = await loadConfig();
     if (!ok) return;
     applyRule();
     AR.telemetry.event(C.EV.RESYNC, `${AR.safeUrl(location.href)} ${st.matchReason}`);
 
-    if (!st.rule || !st.enabled) {
-      // 新 URL 不再命中规则：必须停表，否则会按旧规则刷一个不该刷的页面
-      AR.judge.stop();
-      AR.overlay.hideCountdown();
-      st.ready = false;
-      AR.telemetry.bye('rule-lost');
+    const nextActive = !!(st.rule && st.enabled);
+    const wasActive = !!prev.enabled;
+
+    if (!nextActive) {
+      if (wasActive) {
+        // 新 URL 不再命中规则：必须停表，否则会按旧规则刷一个不该刷的页面
+        AR.judge.stop();
+        AR.overlay.hideCountdown();
+        st.ready = false;
+        AR.telemetry.bye('rule-lost');
+      }
       return;
     }
 
     AR.activity.start(onUserSignal, { countScroll: !!st.settings.countScrollAsActivity });
-    AR.judge.resetActivity();
+    if (!wasActive) AR.judge.resetActivity();
     if (!st.ready) {
       st.ready = true;
       AR.judge.start();
     }
-    AR.telemetry.hello();
+    // 非 fresh：只同步规则元数据给 SW，时间轴以 content 为准继续走
+    AR.telemetry.hello(false);
   }
 
   /** 规则 / 设置在别处被改时即时生效，无需刷新页面（FR-01 要求） */

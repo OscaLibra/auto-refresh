@@ -2,6 +2,34 @@
 
 遵循 SemVer。分组：新增 / 修复 / 变更 / 移除。
 
+## 1.0.2
+
+### 修复
+
+- **最小化再打开，倒计时先正常继续、随后突然归满重新倒计时。**
+  1.0.1 修掉了可见性这条线，但真正的主源在 SW 侧，由三条链路叠加构成：
+
+  1. **`ensureInitialized()` 每次 SW 冷启动都无条件重写 `ar:settings`。**
+     MV3 的 SW 每 30 秒被巡检 alarm 唤醒一次，每次唤醒都重写 storage →
+     所有匹配页面收到 `storage.onChanged` → 触发 `resync()`。
+     现在只有内容真变化才落盘。
+  2. **`resync()` 无条件 `resetActivity()` + `hello()`。** 任何 resync（包括
+     配置原样的）都会把页面计时基准与 SW 会话时间戳双双归满。
+     现在 resync 只在"从未监控进入监控"时重置基准；配置原样 / 仅阈值变化都保留原时间轴。
+  3. **SW 侧三处无条件写 `lastActivityAt: now`：**
+     - `hello` 处理器：resync 产生的 hello 也会重置会话。
+       现在 hello 携带 `fresh` 标志——只有页面真正加载（fresh）才重开时间轴，
+       否则以 content（判决方）报来的时间戳为准；
+     - `tabs.onUpdated` 的 URL 变化：任何后台页面的重定向 / 令牌刷新都会归满。
+       现在真导航由重新注入的 content `hello(fresh)` 重开时间轴，SPA 路由变化只同步元数据；
+     - 新增防守：URL 变化后若不再命中任何规则，清掉残留会话，
+       content 发出的 `bye(rule-lost)` 也会清会话——防止兜底巡检按旧规则刷不该刷的页面。
+
+### 变更
+
+- 自检用例 40 + 57 → 50 + 67 项，新增「配置原样的 resync 不重置计时」「ensureInitialized
+  重复执行不重写 settings」「非 fresh hello / URL 变化不重置会话时间轴」等 10 条回归测试。
+
 ## 1.0.1
 
 ### 修复
@@ -44,7 +72,7 @@
 - `beforeunload` 拦截检测：3 秒存活探针，重置计时避免连环弹框。
 - 诊断：最近 50 条事件环形缓冲 + 一键导出（不含 URL 的 query/hash）。
 - 权限最小化：安装零提示，按站点 `optional_host_permissions` 动态申请。
-- 五道本地自检：`verify.mjs`（120 项）、`simulate.mjs`（40 项）、`simulate-sw.mjs`（57 项）、`make-icons.py`、`pack.mjs`。
+- 五道本地自检：`verify.mjs`（120 项）、`simulate.mjs`（50 项）、`simulate-sw.mjs`（67 项）、`make-icons.py`、`pack.mjs`。
 
 ### 已知限制
 

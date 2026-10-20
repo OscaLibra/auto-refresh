@@ -80,6 +80,8 @@ function makeChrome() {
   const badges = [];
   const reloads = [];
   const diagLog = [];
+  /** SW 顶层注册的事件监听器，供测试直接驱动 */
+  const listeners = { tabsUpdated: [], tabsRemoved: [], alarm: [] };
 
   const chrome = {
     storage: { local: makeArea(local), session: makeArea(session) },
@@ -153,8 +155,8 @@ function makeChrome() {
         if (!tabs.has(tabId)) throw new Error('Could not establish connection. Receiving end does not exist.');
         return { ok: true };
       },
-      onRemoved: { addListener: () => {} },
-      onUpdated: { addListener: () => {} },
+      onRemoved: { addListener: (f) => listeners.tabsRemoved.push(f) },
+      onUpdated: { addListener: (f) => listeners.tabsUpdated.push(f) },
       onReplaced: { addListener: () => {} },
       onActivated: { addListener: () => {} },
     },
@@ -165,7 +167,7 @@ function makeChrome() {
     alarmsState: alarms,
   };
 
-  return { chrome, local, session, tabs, alarms, scripts, granted, messages, badges, reloads, diagLog };
+  return { chrome, local, session, tabs, alarms, scripts, granted, messages, badges, reloads, diagLog, listeners };
 }
 
 /** 重置每个用例的存储与标签，但保留 chrome 对象（模块已持有引用） */
@@ -483,6 +485,81 @@ async function t11ServiceWorkerLoads() {
   ok('引导后注册了 alarm', m.alarms.has('ar:patrol'));
 }
 
+async function t12TimelineGuard() {
+  console.log('\n[12] 计时基准保护（1.0.2 回归：倒计时不得被非用户事件归满）');
+  reset(m);
+  await rulesStore.ensureInitialized();
+  const r = await rulesStore.addRule({ pattern: 'oa.example.com/app', idleMinutes: 2 });
+  m.granted.add('https://oa.example.com/*');
+  await rulesStore.updateRule(r.id, { permissionGranted: true });
+  m.tabs.set(1, { active: true, status: 'complete', url: 'https://oa.example.com/app/list' });
+
+  // A. ensureInitialized 幂等：SW 每 30 秒被 alarm 唤醒都会重跑到这里，
+  //    重复重写 settings 会触发全页面 storage.onChanged → resync 风暴
+  const settingsBefore = m.local.get('ar:settings');
+  await rulesStore.ensureInitialized();
+  await rulesStore.ensureInitialized();
+  ok('ensureInitialized 重复执行不重写 settings', m.local.get('ar:settings') === settingsBefore);
+
+  // B. fresh hello（页面真正加载）：重开时间轴
+  await call('ar:content:hello', {
+    url: 'https://oa.example.com/app/list',
+    ruleId: r.id,
+    idleMs: 120000,
+    mode: 'reload',
+    fresh: true,
+    lastActivityAt: Date.now() - 50000,
+  });
+  let s = await sessions.getSession(1);
+  ok('fresh hello 以当前时间为基准', Date.now() - s.lastActivityAt < 1000, String(s.lastActivityAt));
+
+  // C. 非 fresh hello（resync 元数据同步）：保留原时间轴，以 content 报的值为准
+  const kept = Date.now() - 30000;
+  await call('ar:content:hello', {
+    url: 'https://oa.example.com/app/list',
+    ruleId: r.id,
+    idleMs: 120000,
+    mode: 'reload',
+    fresh: false,
+    lastActivityAt: kept,
+  });
+  s = await sessions.getSession(1);
+  ok('非 fresh hello 不重置计时', s.lastActivityAt === kept, `kept=${kept} got=${s.lastActivityAt}`);
+
+  // D. 非 fresh 且未带时间戳：保留会话原值
+  const kept2 = s.lastActivityAt;
+  await call('ar:content:hello', { url: 'https://oa.example.com/app/list', ruleId: r.id, idleMs: 120000, mode: 'reload', fresh: false });
+  s = await sessions.getSession(1);
+  ok('非 fresh 且缺时间戳时保留原基准', s.lastActivityAt === kept2, String(s.lastActivityAt));
+
+  // E. tabs.onUpdated URL 变化：不重置计时（曾有无条件 lastActivityAt: now 的写法）
+  await import('../src/background/service-worker.js'); // 已在 t11 加载过，这里取缓存
+  const onUpdated = m.listeners.tabsUpdated.at(-1);
+  ok('SW 注册了 tabs.onUpdated 监听', typeof onUpdated === 'function');
+  const kept3 = (await sessions.getSession(1)).lastActivityAt;
+  await onUpdated(1, { url: 'https://oa.example.com/app/list2' }, { id: 1, active: true, status: 'complete' });
+  await sleep(20);
+  s = await sessions.getSession(1);
+  ok('URL 变化不重置计时基准', !!s && s.lastActivityAt === kept3, `kept=${kept3} got=${s && s.lastActivityAt}`);
+  ok('URL 变化只更新 url 字段', !!s && s.url === 'https://oa.example.com/app/list2', s && s.url);
+
+  // F. URL 不再命中规则：清掉会话，防止巡检去刷不该刷的页面
+  await onUpdated(1, { url: 'https://other.example.com/page' }, { id: 1, active: true, status: 'complete' });
+  await sleep(20);
+  ok('离开监控范围后会话被清理', (await sessions.getSession(1)) === null);
+
+  // G. bye(rule-lost) 清会话；普通 pagehide 不清（可能是刷新，新页面马上会 hello）
+  m.tabs.set(2, { active: true, status: 'complete' });
+  await call('ar:content:hello', { url: 'https://oa.example.com/app', ruleId: r.id, idleMs: 120000, mode: 'reload', fresh: true }, { tab: { id: 2 }, frameId: 0 });
+  await call('ar:content:bye', { reason: 'rule-lost' }, { tab: { id: 2 }, frameId: 0 });
+  ok('rule-lost 告别清理会话', (await sessions.getSession(2)) === null);
+
+  m.tabs.set(3, { active: true, status: 'complete' });
+  await call('ar:content:hello', { url: 'https://oa.example.com/app', ruleId: r.id, idleMs: 120000, mode: 'reload', fresh: true }, { tab: { id: 3 }, frameId: 0 });
+  await call('ar:content:bye', { reason: 'pagehide' }, { tab: { id: 3 }, frameId: 0 });
+  ok('普通 pagehide 不清会话', (await sessions.getSession(3)) !== null);
+}
+
 try {
   await t1Init();
   await t2RuleCrud();
@@ -495,6 +572,7 @@ try {
   await t9RulesChanged();
   await t10Export();
   await t11ServiceWorkerLoads();
+  await t12TimelineGuard();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);

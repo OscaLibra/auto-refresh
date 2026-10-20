@@ -10,12 +10,12 @@
 
 import { MSG } from '../shared/messages.js';
 import { findHandler } from './message-router.js';
-import { ensureInitialized } from './rules-store.js';
+import { ensureInitialized, listRules } from './rules-store.js';
 import { rebuild } from './registrar.js';
 import { ensureAlarm, patrol, PATROL_ALARM } from './patrol.js';
 import { clearSession, moveSession, patchSession } from './session-store.js';
 import { updateBadge } from './badge.js';
-import { safeUrl } from '../shared/pattern.js';
+import { matchRule, safeUrl } from '../shared/pattern.js';
 
 /* ------------------------------------------------------------------ */
 /* 初始化（幂等 + 可重建缓存）                                          */
@@ -102,7 +102,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 /**
- * URL 变化（含 SPA 的降级处理，R-12）：重设会话并让 content 重新匹配规则。
+ * URL 变化（含 SPA 的降级处理，R-12）：让 content 重新匹配规则。
+ * 关键：绝不在这里重置 lastActivityAt——
+ *  - 真导航：content 会重新注入并 hello(fresh)，时间轴自然重开；
+ *  - SPA 路由变化 / 后台页面的重定向：resync（非 fresh）只同步元数据。
+ * 曾有无条件 `lastActivityAt: now` 的写法，任何后台 URL 抖动都会把倒计时归满。
  * 本期不做 MAIN world 劫持 pushState——那会与站点脚本耦合，代价高于收益。
  */
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -116,7 +120,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   bootstrap('tabs.onUpdated')
     .then(async () => {
       const url = safeUrl(changeInfo.url);
-      await patchSession(tabId, { url, lastActivityAt: Date.now() });
+      const rules = await listRules();
+      const hit = matchRule(changeInfo.url, rules);
+      if (!hit.rule) {
+        // 新地址已不在监控范围：会话必须清掉，否则兜底巡检会按旧规则
+        // 去刷一个根本不该刷的页面（旧会话里的 idleMs 还在生效）
+        await clearSession(tabId).catch(() => {});
+      } else {
+        await patchSession(tabId, { url });
+      }
       await chrome.tabs
         .sendMessage(tabId, { type: MSG.TAB_COMMAND, payload: { cmd: 'resync' } }, { frameId: 0 })
         .catch(() => {

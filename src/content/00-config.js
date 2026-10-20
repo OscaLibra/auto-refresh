@@ -40,6 +40,7 @@
       ACTIVITY: 'ar:content:activity',
       EXEC: 'ar:content:exec',
       BYE: 'ar:content:bye',
+      DIAG: 'ar:content:diag',
       BROADCAST: 'ar:sw:broadcast',
       TAB_COMMAND: 'ar:tab:command',
       FRAME_ACTIVITY: 'ar:sw:frameActivity',

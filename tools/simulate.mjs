@@ -150,6 +150,7 @@ function buildEnv(opt) {
   let msgListener = null;
 
   const docListeners = {};
+  const storageListeners = [];
   const document = {
     documentElement: makeElement('html'),
     body: makeElement('body'),
@@ -206,7 +207,11 @@ function buildEnv(opt) {
         },
         set: async () => {},
       },
-      onChanged: { addListener: () => {} },
+      onChanged: {
+        addListener: (fn) => {
+          storageListeners.push(fn);
+        },
+      },
     },
   };
 
@@ -305,6 +310,12 @@ function buildEnv(opt) {
       const fn = docListeners.visibilitychange;
       if (fn) fn({ type: 'visibilitychange' });
     },
+    /** 测试用：模拟 SW 侧 storage 写入触发 onChanged（如设置保存 / SW 唤醒初始化） */
+    fireStorageChange: (area, keys) => {
+      const changes = {};
+      for (const k of keys) changes[k] = { oldValue: undefined, newValue: undefined };
+      for (const fn of storageListeners.slice()) fn(changes, area);
+    },
   };
 }
 
@@ -372,7 +383,9 @@ async function caseReload() {
   ok('装配后进入 ready', AR.state.ready === true, `ready=${AR.state.ready}`);
   ok('命中规则', AR.state.rule?.id === 'r_abc123');
   ok('阈值换算为 60000ms', AR.state.idleMs === 60000, String(AR.state.idleMs));
-  ok('已向 SW 登记会话', env.sent.some((m) => m.type === 'ar:content:hello'));
+  const bootHello = env.sent.find((m) => m.type === 'ar:content:hello');
+  ok('已向 SW 登记会话', !!bootHello);
+  ok('启动 hello 标记 fresh=true', !!bootHello && bootHello.payload.fresh === true);
 
   const st = AR.state;
   st.lastActivityAt = Date.now() - 61000;
@@ -609,6 +622,52 @@ async function caseClockRollback() {
   AR.judge.stop();
 }
 
+async function caseResyncKeepsTimeline() {
+  console.log('\n[12] 配置原样的 resync：不重置计时（1.0.2 回归）');
+  const env = buildEnv({ rules: [RULE_RELOAD], settings: SETTINGS });
+  loadContent(env);
+  await sleep(30);
+  const AR = getAR(env.ctx);
+  const st = AR.state;
+
+  // 静置 30 秒后，模拟"SW 唤醒 / 无关设置写入"触发的 resync
+  st.lastActivityAt = Date.now() - 30 * 1000;
+  const before = st.lastActivityAt;
+
+  env.setStore([RULE_RELOAD], { ...SETTINGS }); // 内容原样
+  env.fireStorageChange('local', ['ar:settings']);
+  await sleep(40);
+
+  ok('resync 后仍在监控', st.ready === true);
+  ok('配置原样的 resync 不重置计时', st.lastActivityAt === before, `before=${before} after=${st.lastActivityAt}`);
+  const hello = [...env.sent].reverse().find((m) => m.type === 'ar:content:hello');
+  ok('resync 的 hello 标记 fresh=false', !!hello && hello.payload.fresh === false);
+  ok('resync 的 hello 携带当前计时基准', !!hello && hello.payload.lastActivityAt === before);
+
+  // 阈值变化也不重置：旧基准对新阈值同样成立
+  env.setStore([{ ...RULE_RELOAD, idleMinutes: 5 }], { ...SETTINGS });
+  env.fireStorageChange('local', ['ar:rules']);
+  await sleep(40);
+  ok('阈值变化不重置时间轴', st.lastActivityAt === before, `after=${st.lastActivityAt}`);
+  ok('新阈值已生效', st.idleMs === 300000, String(st.idleMs));
+
+  // 停用规则：停表
+  env.setStore([{ ...RULE_RELOAD, enabled: false }], { ...SETTINGS });
+  env.fireStorageChange('local', ['ar:rules']);
+  await sleep(40);
+  ok('规则停用后停止计时', st.ready === false && st.tickTimer === 0);
+
+  // 重新启用：这是真正的"从无到有"，从现在起算
+  const tEnable = Date.now();
+  env.setStore([{ ...RULE_RELOAD, enabled: true }], { ...SETTINGS });
+  env.fireStorageChange('local', ['ar:rules']);
+  await sleep(40);
+  ok('重新启用后恢复计时', st.ready === true && st.tickTimer !== 0);
+  ok('重新启用重置了计时基准', st.lastActivityAt >= tEnable, String(st.lastActivityAt));
+
+  AR.judge.stop();
+}
+
 /* ------------------------------------------------------------------ */
 
 try {
@@ -623,6 +682,7 @@ try {
   await caseClockRollback();
   await caseVisibilityRestore();
   await caseHiddenThrottled();
+  await caseResyncKeepsTimeline();
 } catch (e) {
   fails.push(`用例执行抛错：${e?.stack || e}`);
   console.error(e);
