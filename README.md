@@ -78,7 +78,7 @@ auto-refresh/
 └── tools/
     ├── make-icons.py             # 生成三档 PNG（不依赖 Pillow）
     ├── verify.mjs                # 静态自检 + pattern 单元测试
-    ├── simulate.mjs              # content 端运行时冒烟测试（39 项）
+    ├── simulate.mjs              # content 端运行时冒烟测试（40 项）
     ├── simulate-sw.mjs           # service worker 集成测试（57 项）
     └── pack.mjs                  # 打包成可分发的 zip
 ```
@@ -94,7 +94,7 @@ auto-refresh/
 
 ```bash
 node tools/verify.mjs        # 120 项：manifest 权限红线、content 无 ESM、常量一致性、pattern 单测
-node tools/simulate.mjs      # 39 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨、最小化恢复
+node tools/simulate.mjs      # 40 项：装配、到点刷新、提示浮层、ping、iframe、休眠唤醒、时间回拨、最小化恢复
 node tools/simulate-sw.mjs   # 57 项：规则 CRUD、动态注册幂等、会话、暂停、巡检兜底、诊断导出
 python3 tools/make-icons.py  # 重新生成图标
 node tools/pack.mjs          # 产出 dist/auto-refresh-{version}.zip（dist/ 不入库）

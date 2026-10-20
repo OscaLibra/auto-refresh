@@ -18,8 +18,13 @@
    * 计入活动的事件（AR-TD-001 4.3）。
    * `scroll` 与 `input` 是可选：默认关闭——日志流 / 轮播 / 无限加载会让 scroll 持续触发
    * 且 isTrusted 仍为 true，无法与真实滚动区分，打开就会"永不刷新"。
+   *
+   * 这里**没有** `focusin`（规范原表里列了，1.0.1 移除）。两个理由：
+   *  1) 冗余：点进输入框有 pointerdown / mousedown，Tab 进来有 keydown，纯聚焦无法脱离这两者发生；
+   *  2) 有害：部分浏览器在窗口重新获得焦点时会补发焦点事件，
+   *     那会把"最小化再打开"又变回一次伪活动——正是 1.0.1 要修的那类误判。
    */
-  const BASE_EVENTS = ['mousemove', 'mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove', 'focusin'];
+  const BASE_EVENTS = ['mousemove', 'mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'];
 
   /** @type {Array<[string, EventListener, AddEventListenerOptions]>} */
   let active = [];

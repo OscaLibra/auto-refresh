@@ -562,6 +562,11 @@ async function caseVisibilityRestore() {
   const remain = st.idleMs - (Date.now() - st.lastActivityAt);
   ok('剩余时间没有回到满值', remain < st.idleMs, `remain=${Math.round(remain / 1000)}s idleMs=${st.idleMs / 1000}s`);
 
+  // 部分浏览器会在窗口重新获得焦点时补发焦点事件，这类"伪活动"不能重置计时
+  env.window.dispatch('focusin');
+  await sleep(10);
+  ok('focusin 不再被当作活动', st.lastActivityAt === before, `after=${st.lastActivityAt}`);
+
   AR.judge.stop();
 }
 
